@@ -1,0 +1,38 @@
+*&---------------------------------------------------------------------*
+*& Report  ZRFI_EDOCTACLIENTE_V2
+*&
+*&---------------------------------------------------------------------*
+*  Description:
+*  Reporte de estado de cuenta cliente
+*  V2 para envio de correo
+*----------------------------------------------------------------------*
+*  Program Maintenance History                                         *
+*  ------------------------------------------------------------------- *
+*  Date       Author       Change Req Description                      *
+*  ------------------------------------------------------------------- *
+*  14.06.2016 Valeska Lugo 427659     Initial program creation
+*----------------------------------------------------------------------*
+
+INCLUDE zrfi_edoctacliente_v2_top               .   " global Data
+INCLUDE zrfi_edoctacliente_v2_p01               .   " CLASS-Implement
+
+*&---------------------------------------------------------------------
+INITIALIZATION.
+  "
+
+
+*&---------------------------------------------------------------------
+START-OF-SELECTION.
+  lcl_util=>init( ).
+  lcl_util=>extract_data( ).
+  lcl_util=>process_data( ).
+
+
+*----------------------------------------------------------------------
+END-OF-SELECTION.
+  IF lcl_util=>x_group IS INITIAL.
+    lcl_util=>display_data( ).
+  ELSE.
+    lcl_util=>send_data( ).
+  ENDIF.
+

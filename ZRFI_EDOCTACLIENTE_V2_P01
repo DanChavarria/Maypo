@@ -1,0 +1,848 @@
+*&---------------------------------------------------------------------*
+*&  Include           ZRFI_EDOCTACLIENTE_V2_P01
+*&---------------------------------------------------------------------*
+CLASS lcl_util IMPLEMENTATION.
+**
+  METHOD extract_data .
+
+    DATA: o_ser TYPE REF TO zcl_fi_accounting_service.
+
+    " GET data
+    o_ser = zcl_fi_accounting_service=>get_instance( ).
+*{ MODIFY agil -> https://about.me/angelgil 23.01.2020 12:33:23 NMOP
+*  Se requiere en el reporte ZFI_EDOCTACTE el filtro por número del socio comercial.
+    o_ser->read_customer_statement(
+      EXPORTING
+        i_company_code     = p_bukrs
+        i_clearing_date    = p_budat
+        it_customer_number = s_kunnr[]
+        it_customer_accgrp = s_ktokd[]
+        it_charac_value    = s_atwrt[]
+        it_currency        = s_waers[]
+        it_partner_number  = s_partnr[]
+        to_pdf             = x_topdf
+        pdf_by_group       = x_group
+      IMPORTING
+        et_statement       = gt_state
+        et_pdf             = gt_files ).
+* agil NMOP}
+  ENDMETHOD.                    "extract_data
+*
+  METHOD process_data .
+
+    DATA: lt_color TYPE lvc_t_scol,
+          ls_color TYPE lvc_s_scol.
+
+    FIELD-SYMBOLS:
+      <fs_state> LIKE LINE OF gt_state.
+
+    " ... process
+    LOOP AT gt_state ASSIGNING <fs_state>.
+      MOVE-CORRESPONDING <fs_state> TO gs_data.
+
+      " ... set color parc.
+      IF gs_data-fsort NE gs_data-belnr.
+        ls_color-color-col = col_group.
+        ls_color-color-int = 0.
+        ls_color-color-inv = 0.
+        APPEND ls_color TO lt_color.
+
+        gs_data-color = lt_color.
+        CLEAR lt_color.
+      ENDIF.
+
+      " ...
+      APPEND gs_data TO gt_data.
+      CLEAR gs_data.
+    ENDLOOP.
+
+    " ...
+    SORT gt_data BY kunnr fsort.
+
+  ENDMETHOD.                    "process_data
+*
+  METHOD display_data .
+
+*... §
+    IF gt_data IS INITIAL.
+      MESSAGE i707(01).
+      EXIT.
+    ENDIF.
+
+*... § create an ALV table
+    TRY.
+        cl_salv_table=>factory(
+          IMPORTING
+            r_salv_table    = gr_table
+          CHANGING
+            t_table         = gt_data ).
+      CATCH cx_salv_msg.                                "#EC NO_HANDLER
+    ENDTRY.
+
+*... § Functions
+*... § activate ALV generic Functions
+*... § include own functions by setting own status
+    gr_table->set_screen_status(
+      pfstatus      = 'STATUS'
+      report        = sy-repid
+      set_functions = gr_table->c_functions_all ).
+
+*... set the columns technical
+    DATA: lr_columns TYPE REF TO cl_salv_columns_table,
+          lr_column  TYPE REF TO cl_salv_column_table.
+
+    lr_columns = gr_table->get_columns( ).
+    lr_columns->set_optimize( abap_true ).
+    lr_columns->set_key_fixation( abap_true ).
+
+    TRY.
+        lr_columns->set_color_column( 'COLOR' ).
+      CATCH cx_salv_data_error.
+    ENDTRY.
+
+    set_columns( lr_columns ).
+
+*... § set layout
+    DATA: lr_layout TYPE REF TO cl_salv_layout,
+          ls_key    TYPE salv_s_layout_key.
+
+    lr_layout = gr_table->get_layout( ).
+    ls_key-report = sy-repid.
+
+    lr_layout->set_key( ls_key ).
+    lr_layout->set_default( abap_true ).
+    lr_layout->set_save_restriction( if_salv_c_layout=>restrict_none ).
+
+    IF p_layou IS NOT INITIAL.
+      lr_layout->set_initial_layout( p_layou ).
+    ENDIF.
+
+*... § set top
+    DATA: lr_content  TYPE REF TO cl_salv_form_element,
+          lr_grid     TYPE REF TO cl_salv_form_layout_grid.
+
+    lr_grid = set_top( ).
+    lr_content = lr_grid.
+    gr_table->set_top_of_list( lr_content ).
+
+*... § register to the events of cl_salv_table
+    DATA: lr_events TYPE REF TO cl_salv_events_table,
+          lr_levent TYPE REF TO lcl_util.
+
+    lr_events = gr_table->get_event( ).
+
+    CREATE OBJECT lr_levent.
+    SET HANDLER lr_levent->on_link_click   FOR lr_events.
+    SET HANDLER lr_levent->on_user_command FOR lr_events.
+
+*... § display the table
+    gr_table->display( ).
+
+  ENDMETHOD.                    "display_data
+*
+  METHOD set_columns.
+
+    DATA: lr_column TYPE REF TO cl_salv_column,
+          lr_coltch TYPE REF TO cl_salv_column_table.
+
+    TRY.
+        lr_coltch ?= ir_columns->get_column( 'KUNNR' ).
+        lr_coltch->set_key( abap_true ).
+      CATCH cx_salv_not_found.                          "#EC NO_HANDLER
+    ENDTRY.
+    TRY.
+        lr_column = ir_columns->get_column( 'NAME1' ).
+        lr_column->set_long_text( 'Nombre Cliente' ).
+        lr_column->set_medium_text( 'Nombre Cliente' ).
+        lr_column->set_short_text( '' ).
+
+        lr_coltch ?= lr_column.
+        lr_coltch->set_key( abap_true ).
+      CATCH cx_salv_not_found.                          "#EC NO_HANDLER
+    ENDTRY.
+    TRY.
+        lr_column = ir_columns->get_column( 'BEZEI' ).
+        lr_column->set_long_text( 'Región' ).
+        lr_column->set_medium_text( 'Región' ).
+        lr_column->set_short_text( 'Región' ).
+      CATCH cx_salv_not_found.                          "#EC NO_HANDLER
+    ENDTRY.
+    TRY.
+        lr_column = ir_columns->get_column( 'AUFSD' ).
+        lr_column->set_long_text( '' ).
+        lr_column->set_medium_text( '' ).
+        lr_column->set_short_text( '' ).
+        lr_column->set_technical( if_salv_c_bool_sap=>true ).
+      CATCH cx_salv_not_found.                          "#EC NO_HANDLER
+    ENDTRY.
+    TRY.
+        lr_column = ir_columns->get_column( 'VTEXT' ).
+        lr_column->set_long_text( 'Status' ).
+        lr_column->set_medium_text( 'Status' ).
+        lr_column->set_short_text( 'Status' ).
+      CATCH cx_salv_not_found.                          "#EC NO_HANDLER
+    ENDTRY.
+    TRY.
+        lr_column = ir_columns->get_column( 'LOCCO' ).
+        lr_column->set_long_text( 'Delegación' ).
+        lr_column->set_medium_text( 'Delegación' ).
+        lr_column->set_short_text( '' ).
+      CATCH cx_salv_not_found.                          "#EC NO_HANDLER
+    ENDTRY.
+    TRY.
+        lr_coltch ?= ir_columns->get_column( 'BELNR' ).
+        lr_coltch->set_cell_type( if_salv_c_cell_type=>hotspot ).
+      CATCH cx_salv_not_found.                          "#EC NO_HANDLER
+    ENDTRY.
+    TRY.
+        lr_column = ir_columns->get_column( 'XBLNR' ).
+        lr_column->set_long_text( 'Factura' ).
+        lr_column->set_medium_text( 'Factura' ).
+        lr_column->set_short_text( 'Factura' ).
+      CATCH cx_salv_not_found.                          "#EC NO_HANDLER
+    ENDTRY.
+    TRY.
+        lr_column = ir_columns->get_column( 'BUDAT' ).
+        lr_column->set_long_text( 'Fecha Factura' ).
+        lr_column->set_medium_text( 'Fecha Factura' ).
+        lr_column->set_short_text( '' ).
+      CATCH cx_salv_not_found.                          "#EC NO_HANDLER
+    ENDTRY.
+    TRY.
+        lr_column = ir_columns->get_column( 'IMBTR' ).
+        lr_column->set_long_text( 'Importe Saldo' ).
+        lr_column->set_medium_text( 'Importe Saldo' ).
+        lr_column->set_short_text( '' ).
+      CATCH cx_salv_not_found.                          "#EC NO_HANDLER
+    ENDTRY.
+    TRY.
+        lr_column = ir_columns->get_column( 'MONED' ).
+        lr_column->set_long_text( 'Moneda Local' ).
+        lr_column->set_medium_text( 'Moneda Local' ).
+        lr_column->set_short_text( '' ).
+      CATCH cx_salv_not_found.                          "#EC NO_HANDLER
+    ENDTRY.
+
+    TRY.
+        lr_column = ir_columns->get_column( 'WRBTR' ).
+        lr_column->set_long_text( 'Importe MD' ).
+        lr_column->set_medium_text( 'Importe MD' ).
+        lr_column->set_short_text( 'Impte.MD' ).
+      CATCH cx_salv_not_found.                          "#EC NO_HANDLER
+    ENDTRY.
+    TRY.
+        lr_column = ir_columns->get_column( 'IWRBT' ).
+        lr_column->set_long_text( 'Importe Saldo MD' ).
+        lr_column->set_medium_text( 'Importe Saldo MD' ).
+        lr_column->set_short_text( '' ).
+      CATCH cx_salv_not_found.                          "#EC NO_HANDLER
+    ENDTRY.
+    TRY.
+        lr_column = ir_columns->get_column( 'WAERS' ).
+        lr_column->set_long_text( 'Moneda D' ).
+        lr_column->set_medium_text( 'Moneda D' ).
+        lr_column->set_short_text( '' ).
+      CATCH cx_salv_not_found.                          "#EC NO_HANDLER
+    ENDTRY.
+    TRY.
+        lr_column = ir_columns->get_column( 'BSTKD' ).
+*        CASE g_repid.
+*          WHEN '01'.
+*            lr_column->set_long_text( 'Orden de Reposición' ).
+*            lr_column->set_medium_text( 'Orden de Reposición' ).
+*            lr_column->set_short_text( '' ).
+*          WHEN '02'.
+*            lr_column->set_long_text( 'N° Ped. Cliente' ).
+*            lr_column->set_medium_text( 'N° Ped. Cliente' ).
+*            lr_column->set_short_text( '' ).
+*          WHEN '03'.
+*            lr_column->set_long_text( 'N° Ped. Cliente' ).
+*            lr_column->set_medium_text( 'N° Ped. Cliente' ).
+*            lr_column->set_short_text( '' ).
+*          WHEN OTHERS.
+*            "
+*        ENDCASE.
+      CATCH cx_salv_not_found.                          "#EC NO_HANDLER
+    ENDTRY.
+    TRY.
+        lr_column = ir_columns->get_column( 'GBSTK' ).
+        lr_column->set_long_text( 'Contrato' ).
+        lr_column->set_medium_text( 'Contrato' ).
+        lr_column->set_short_text( '' ).
+      CATCH cx_salv_not_found.                          "#EC NO_HANDLER
+    ENDTRY.
+    TRY.
+        lr_column = ir_columns->get_column( 'ZUONR' ).
+        lr_column->set_long_text( 'Alta' ).
+        lr_column->set_medium_text( 'Alta' ).
+        lr_column->set_short_text( 'Alta' ).
+      CATCH cx_salv_not_found.                          "#EC NO_HANDLER
+    ENDTRY.
+    TRY.
+        lr_column = ir_columns->get_column( 'SGTXT' ).
+        lr_column->set_long_text( 'Contra-Recibo' ).
+        lr_column->set_medium_text( 'Contra-Recibo' ).
+        lr_column->set_short_text( '' ).
+      CATCH cx_salv_not_found.                          "#EC NO_HANDLER
+    ENDTRY.
+    TRY.
+        lr_column = ir_columns->get_column( 'ZFBDT' ).
+        lr_column->set_long_text( 'Fecha Contra-Recibo' ).
+        lr_column->set_medium_text( 'Fecha Contra-Recibo' ).
+        lr_column->set_short_text( '' ).
+      CATCH cx_salv_not_found.                          "#EC NO_HANDLER
+    ENDTRY.
+    TRY.
+        lr_column = ir_columns->get_column( 'VENDT' ).
+        lr_column->set_long_text( 'Vencimiento Contra-Recibo' ).
+        lr_column->set_medium_text( 'Venc. Contra-Recibo' ).
+        lr_column->set_short_text( '' ).
+      CATCH cx_salv_not_found.                          "#EC NO_HANDLER
+    ENDTRY.
+    TRY.
+        lr_column = ir_columns->get_column( 'DVENC' ).
+        lr_column->set_long_text( 'Días Vencido' ).
+        lr_column->set_medium_text( 'Días Vencido' ).
+        lr_column->set_short_text( '' ).
+      CATCH cx_salv_not_found.                          "#EC NO_HANDLER
+    ENDTRY.
+    TRY.
+        lr_column = ir_columns->get_column( 'BLART' ).
+        lr_column->set_long_text( 'Tipo de Venta' ).
+        lr_column->set_medium_text( 'Tipo de Venta' ).
+        lr_column->set_short_text( '' ).
+      CATCH cx_salv_not_found.                          "#EC NO_HANDLER
+    ENDTRY.
+    TRY.
+        lr_column = ir_columns->get_column( 'DESTN' ).
+        lr_column->set_long_text( 'Destino' ).
+        lr_column->set_medium_text( 'Destino' ).
+        lr_column->set_short_text( 'Destino' ).
+      CATCH cx_salv_not_found.                          "#EC NO_HANDLER
+    ENDTRY.
+    TRY.
+        lr_column = ir_columns->get_column( 'SNAME' ).
+        lr_column->set_long_text( 'Ejecutivo de Cobranza' ).
+        lr_column->set_medium_text( '' ).
+        lr_column->set_short_text( '' ).
+      CATCH cx_salv_not_found.                          "#EC NO_HANDLER
+    ENDTRY.
+    TRY.
+        lr_column = ir_columns->get_column( 'EJENG' ).
+        lr_column->set_long_text( 'Ejecutivo de Negocios' ).
+        lr_column->set_medium_text( '' ).
+        lr_column->set_short_text( '' ).
+      CATCH cx_salv_not_found.                          "#EC NO_HANDLER
+    ENDTRY.
+    TRY.
+        lr_coltch ?= ir_columns->get_column( 'KKBER' ).
+        lr_coltch->set_cell_type( if_salv_c_cell_type=>hotspot ).
+      CATCH cx_salv_not_found.                          "#EC NO_HANDLER
+    ENDTRY.
+    TRY.
+        lr_column = ir_columns->get_column( 'EVENT' ).
+        lr_column->set_long_text( 'Evento de Licitación' ).
+        lr_column->set_medium_text( '' ).
+        lr_column->set_short_text( '' ).
+      CATCH cx_salv_not_found.                          "#EC NO_HANDLER
+    ENDTRY.
+    TRY.
+        lr_column = ir_columns->get_column( 'ZTERM' ).
+        lr_column->set_visible( if_salv_c_bool_sap=>false ).
+      CATCH cx_salv_not_found.                          "#EC NO_HANDLER
+    ENDTRY.
+    TRY.
+        lr_column = ir_columns->get_column( 'ATINN' ).
+        lr_column->set_long_text( 'Zona de ventas' ).
+        lr_column->set_medium_text( '' ).
+        lr_column->set_short_text( '' ).
+        lr_column->set_visible( if_salv_c_bool_sap=>false ).
+      CATCH cx_salv_not_found.                          "#EC NO_HANDLER
+    ENDTRY.
+    TRY.
+        lr_column = ir_columns->get_column( 'ATWRT' ).
+        lr_column->set_long_text( 'Val.Zona' ).
+        lr_column->set_medium_text( '' ).
+        lr_column->set_short_text( '' ).
+      CATCH cx_salv_not_found.                          "#EC NO_HANDLER
+    ENDTRY.
+    TRY.
+        lr_column = ir_columns->get_column( 'ATWTB' ).
+        lr_column->set_long_text( 'Denom.Val.Zona de ventas' ).
+        lr_column->set_medium_text( '' ).
+        lr_column->set_short_text( '' ).
+      CATCH cx_salv_not_found.                          "#EC NO_HANDLER
+    ENDTRY.
+    TRY.
+        lr_column = ir_columns->get_column( 'FSORT' ).
+        lr_column->set_technical( if_salv_c_bool_sap=>true ).
+      CATCH cx_salv_not_found.                          "#EC NO_HANDLER
+    ENDTRY.
+  ENDMETHOD.                    "set_columns
+*
+  METHOD set_top .
+
+    DATA: lr_grid_1 TYPE REF TO cl_salv_form_layout_grid,
+          lr_header TYPE REF TO cl_salv_form_header_info,
+          lr_label  TYPE REF TO cl_salv_form_label,
+          lr_text   TYPE REF TO cl_salv_form_text,
+          l_text    TYPE string,
+          l_char    TYPE char30.
+
+    CREATE OBJECT rr_grid.
+
+    lr_grid_1 = rr_grid->create_grid(
+                  row    = 1
+                  column = 1 ).
+
+    " sociedad
+    SELECT SINGLE butxt FROM t001 INTO l_text
+      WHERE bukrs EQ p_bukrs.
+
+    lr_label = lr_grid_1->create_label(
+                  row     = 1
+                  column  = 1
+                  text    = 'Sociedad'
+                  tooltip = 'Sociedad' ).
+
+    lr_text  = lr_grid_1->create_text(
+                  row     = 1
+                  column  = 2
+                  text    = p_bukrs
+                  tooltip = p_bukrs ).
+
+    lr_text  = lr_grid_1->create_text(
+                  row     = 1
+                  column  = 3
+                  text    = l_text
+                  tooltip = l_text ).
+
+    " fe.clave
+    CLEAR l_text.
+    WRITE p_budat TO l_char DD/MM/YYYY.
+    l_text = l_char.
+
+    lr_label = lr_grid_1->create_label(
+                  row     = 2
+                  column  = 1
+                  text    = 'Partidas abiertas al'
+                  tooltip = 'Fe.clave' ).
+
+    lr_text  = lr_grid_1->create_text(
+                  row     = 2
+                  column  = 2
+                  text    = l_text
+                  tooltip = l_text ).
+
+    " fe.emision
+    CLEAR l_text.
+    WRITE sy-datum TO l_char DD/MM/YYYY.
+    l_text = l_char.
+
+    CLEAR l_char.
+    WRITE sy-uzeit TO l_char environment time format.
+
+    CONCATENATE l_text l_char
+      INTO l_text SEPARATED BY space.
+
+    lr_label = lr_grid_1->create_label(
+                  row     = 3
+                  column  = 1
+                  text    = 'Fecha/Hora Emisión'
+                  tooltip = 'Emisión' ).
+
+    lr_text  = lr_grid_1->create_text(
+                  row     = 3
+                  column  = 2
+                  text    = l_text
+                  tooltip = l_text ).
+
+  ENDMETHOD.                    "set_top
+*
+  METHOD on_link_click.
+
+    FIELD-SYMBOLS: <fs_line> LIKE LINE OF gt_data.
+
+    READ TABLE gt_data ASSIGNING <fs_line> INDEX row.
+
+    CASE column.
+      WHEN 'KKBER'.   " Area de control de credito
+        FIELD-SYMBOLS:
+          <fs_kunnr> TYPE ANY,
+          <fs_kkber> TYPE ANY.
+
+        ASSIGN COMPONENT 'KUNNR'
+          OF STRUCTURE <fs_line> TO <fs_kunnr>.
+        ASSIGN COMPONENT 'KKBER'
+          OF STRUCTURE <fs_line> TO <fs_kkber>.
+
+        CHECK <fs_kkber> IS NOT INITIAL.
+
+        DATA:
+          r_knkli   TYPE RANGE OF knkk-knkli,
+          ls_kline  LIKE LINE OF r_knkli,
+          r_kkber   TYPE RANGE OF knkk-kkber,
+          ls_bline  LIKE LINE OF r_kkber.
+
+        ls_kline-sign   = 'I'.
+        ls_kline-option = 'EQ'.
+        ls_kline-low    = <fs_kunnr>.
+        APPEND ls_kline TO r_knkli.
+
+        ls_bline-sign   = 'I'.
+        ls_bline-option = 'EQ'.
+        ls_bline-low    = <fs_kkber>.
+        APPEND ls_bline TO r_kkber.
+
+        SUBMIT rfdkli40
+          WITH konto IN r_knkli
+          WITH kkber IN r_kkber
+          WITH xover EQ 'X'
+          AND RETURN.
+
+      WHEN 'BELNR'.   " Doc.
+        DATA: ls_bkpf TYPE bkpf.
+
+        MOVE-CORRESPONDING <fs_line> TO ls_bkpf.
+
+        CHECK ls_bkpf-belnr IS NOT INITIAL.
+        SET PARAMETER ID 'BLN' FIELD ls_bkpf-belnr.
+        SET PARAMETER ID 'BUK' FIELD p_bukrs.
+        SET PARAMETER ID 'GJR' FIELD ls_bkpf-gjahr.
+
+        CALL TRANSACTION 'FB03' AND SKIP FIRST SCREEN.
+
+      WHEN OTHERS.
+        "
+
+    ENDCASE.
+
+  ENDMETHOD.                 "on_link_click
+*
+  METHOD on_user_command.
+
+    CASE e_salv_function.
+      WHEN '%PRNT%'.
+        DATA: lr_html_container TYPE REF TO cl_gui_custom_container,
+              lr_html_control   TYPE REF TO cl_gui_html_viewer,
+
+              lt_bintab TYPE STANDARD TABLE OF x255,
+              lo_url    TYPE char255,
+
+              ls_files  LIKE LINE OF gt_files,
+
+              o_ser   TYPE REF TO zcl_fi_accounting_service.
+
+        " ...
+        o_ser = zcl_fi_accounting_service=>get_instance( ).
+        o_ser->conv_customer_statement_to_pdf(
+          EXPORTING
+            i_company_code  = p_bukrs
+            i_clearing_date = p_budat
+            it_statement    = gt_state
+            pdf_by_group    = x_group
+          IMPORTING
+            et_pdf          = gt_files ).
+
+        " ... get pdf
+        READ TABLE gt_files INTO ls_files INDEX 1.
+
+        CALL FUNCTION 'SCMS_XSTRING_TO_BINARY'
+          EXPORTING
+            buffer     = ls_files-atta
+          TABLES
+            binary_tab = lt_bintab.
+
+        CREATE OBJECT lr_html_container
+          EXPORTING
+            container_name = 'PDF'.
+
+        CREATE OBJECT lr_html_control
+          EXPORTING
+            parent = lr_html_container.
+
+        lr_html_control->load_data(
+          EXPORTING
+            type                 = 'application'
+            subtype              = 'pdf'
+          IMPORTING
+            assigned_url         = lo_url
+          CHANGING
+            data_table           = lt_bintab
+          EXCEPTIONS
+            dp_invalid_parameter = 1
+            dp_error_general     = 2
+            cntl_error           = 3
+            OTHERS               = 4 ).
+
+        lr_html_control->show_url_in_browser( url = lo_url ).
+
+      WHEN OTHERS.
+        "
+
+    ENDCASE.
+
+  ENDMETHOD.                    "on_user_command
+*
+  METHOD init .
+
+    " mode job envio de correo
+    IF sy-cprog CS sy-slset AND sy-slset IS NOT INITIAL.
+      x_topdf = 'X'.
+      x_group = 'X'.
+    ENDIF.
+
+  ENDMETHOD.                    "init
+*
+  METHOD send_data .
+
+    DATA: ls_files LIKE LINE OF gt_files.
+
+    LOOP AT gt_files INTO ls_files.
+      TRY.  " send
+          MESSAGE s398(00)
+            WITH '... SENDING ZONA' ls_files-group.
+
+          lcl_mail_client=>send_mail( im_recipient = ls_files-group
+                                      im_pdf_file  = ls_files-atta ).
+
+        CATCH cx_root .
+      ENDTRY.
+    ENDLOOP.
+
+  ENDMETHOD.                    "send_data
+**
+ENDCLASS.                    "lcl_util IMPLEMENTATION
+**
+CLASS lcl_mail_client IMPLEMENTATION.
+**
+  METHOD send_mail.
+
+    DATA: o_mail    TYPE REF TO lcl_mail_client,
+          o_err     TYPE REF TO cx_root,
+          lo_email  TYPE string.
+
+    "Send an e-mail message:
+    TRY.
+        "Create a new message:
+        CREATE OBJECT o_mail.
+        o_mail->create_message( ).
+
+        "Build the message payload:
+        o_mail->build_payload( im_recipient = im_recipient
+                               im_pdf_file  = im_pdf_file ).
+
+        "Add a recipient to the message:
+        o_mail->set_recipient(
+          EXPORTING
+            im_recipient = im_recipient
+          IMPORTING
+            ex_recipient = lo_email ).
+
+        "Send the message:
+        o_mail->send_message( ).
+
+        MESSAGE s398(00)
+          WITH 'Se ha enviado correo exitosamente a' lo_email.
+
+      CATCH cx_root INTO o_err.
+        DATA lo_text TYPE string.
+
+        lo_text = o_err->get_text( ).
+        MESSAGE i398(00) DISPLAY LIKE 'E'
+          WITH lo_text.
+    ENDTRY.
+
+  ENDMETHOD.                    "send_mail
+*
+  METHOD create_message.
+    "Method-Local Data Declarations:
+    DATA: lo_sender TYPE REF TO if_sender_bcs.
+
+    "Create a new send request:
+    message = cl_bcs=>create_persistent( ).
+
+    "Create the sender using the current user:
+    lo_sender =
+      cl_sapuser_bcs=>create( sy-uname ).
+
+    message->set_sender( lo_sender ).
+
+  ENDMETHOD.                 " METHOD create_message
+*
+  METHOD set_recipient.
+
+    DATA: ls_tvarvc TYPE tvarvc,
+          ls_p0000  TYPE pa0000,
+          lo_email  TYPE adr6-smtp_addr,
+
+          lo_recipient TYPE REF TO if_recipient_bcs.
+*
+*   GET recipient
+    " build tvarvc var name
+    CONCATENATE sy-cprog im_recipient
+      INTO ls_tvarvc-name SEPARATED BY '_'.
+
+    " read var
+    SELECT SINGLE * FROM tvarvc INTO ls_tvarvc
+      WHERE name EQ ls_tvarvc-name
+        AND type EQ 'P'.
+    IF sy-subrc = 0.
+      CALL FUNCTION 'CONVERSION_EXIT_ALPHA_INPUT'
+        EXPORTING
+          input  = ls_tvarvc-low
+        IMPORTING
+          output = ls_p0000-pernr.
+
+      " get destinatarios
+      SELECT * FROM pa0000 INTO ls_p0000
+        WHERE pernr EQ ls_p0000-pernr
+          AND endda EQ '99991231'
+          AND stat2 EQ '3'.   " personal activo
+
+        " get email destinatario
+        SELECT SINGLE usrid_long FROM pa0105 INTO lo_email
+          WHERE pernr EQ ls_p0000-pernr
+            AND subty EQ '0010'   " email
+            AND endda EQ '99991231'.
+        IF sy-subrc = 0.
+          "Create a recipient using the provided e-mail address:
+          CALL METHOD cl_cam_address_bcs=>create_internet_address
+            EXPORTING
+              i_address_string = lo_email
+            RECEIVING
+              result           = lo_recipient.
+
+          "Add the recipient to the message:
+          CALL METHOD message->add_recipient
+            EXPORTING
+              i_recipient = lo_recipient.
+
+          "...
+          ex_recipient = lo_email.
+        ELSE.
+          MESSAGE i398(00) DISPLAY LIKE 'E'
+            WITH 'Revisar config. de correo para n°personal' ls_tvarvc-low.
+        ENDIF.
+      ENDSELECT.
+    ELSE.
+      MESSAGE i398(00) DISPLAY LIKE 'E'
+        WITH 'Revisar config. de remitente para zona' im_recipient.
+    ENDIF.
+
+  ENDMETHOD.                    "set_recipient
+*
+  METHOD send_message.
+    "Method-Local Data Declarations:
+    DATA: lv_req_status  TYPE bcs_rqst VALUE 'N',
+          lv_status_mail TYPE bcs_stml VALUE 'N'.
+
+    "Turn off status messages for the request:
+    message->set_status_attributes(
+      EXPORTING
+        i_requested_status = lv_req_status
+        i_status_mail      = lv_status_mail ).
+
+    "Toggle the flag to send the message immediately:
+    message->set_send_immediately( 'X' ).
+
+    "Send the message:
+    message->send( ).
+
+    "Have to commit the changes to enqueue the message:
+    COMMIT WORK.
+
+  ENDMETHOD.                    "send_message
+*
+  METHOD build_payload.
+
+    DATA: lt_payload  TYPE bcsy_text,
+          ls_payln    LIKE LINE OF lt_payload,
+          lo_subject  TYPE sood-objdes,
+          ls_thead    TYPE thead,
+          lt_lines    TYPE TABLE OF tline,
+          ls_lines    TYPE tline,
+          lo_char     TYPE char40,
+          lo_datum    TYPE char10.
+
+    FIELD-SYMBOLS:
+          <fs_payln> LIKE LINE OF lt_payload.
+
+    "...
+    WRITE p_budat TO lo_datum DD/MM/YYYY.
+
+    "Get mail body text
+    ls_thead-tdid     = 'ST'.
+    ls_thead-tdspras  = sy-langu.
+    ls_thead-tdname   = sy-cprog.
+    ls_thead-tdobject = 'TEXT'.
+
+    CALL FUNCTION 'READ_TEXT'
+      EXPORTING
+        id                      = ls_thead-tdid
+        language                = ls_thead-tdspras
+        name                    = ls_thead-tdname
+        object                  = ls_thead-tdobject
+      TABLES
+        lines                   = lt_lines
+      EXCEPTIONS
+        id                      = 1
+        language                = 2
+        name                    = 3
+        not_found               = 4
+        object                  = 5
+        reference_check         = 6
+        wrong_access_to_archive = 7
+        OTHERS                  = 8.
+    IF sy-subrc = 0.
+      APPEND INITIAL LINE TO lt_payload ASSIGNING <fs_payln>.
+
+      LOOP AT lt_lines INTO ls_lines.
+        MOVE ls_lines-tdline TO <fs_payln>-line.
+
+        REPLACE '%BUDAT%' IN <fs_payln>-line WITH lo_datum.
+
+        APPEND <fs_payln> TO lt_payload.
+      ENDLOOP.
+    ENDIF.
+
+    CONCATENATE p_bukrs 'Estado de Cuenta de Clientes al' lo_datum
+      INTO lo_subject SEPARATED BY space.
+
+    "Load body message
+    document =
+      cl_document_bcs=>create_from_text(
+        i_text    = lt_payload
+        i_subject = lo_subject ).
+
+    "Add attachments to the document:
+    DATA: lt_attachment     TYPE solix_tab,
+          lv_attach_size    TYPE so_obj_len,
+          lv_attach_type    TYPE so_obj_tp,
+          lv_attach_subject TYPE so_obj_des,
+          lv_codepage       TYPE abap_encod,
+          lo_codepage       TYPE tcp00-cpcodepage.
+
+    "Convert PDF into SOLIX form:
+    lt_attachment =
+      cl_document_bcs=>xstring_to_solix( im_pdf_file ).
+
+    lv_attach_subject = lo_subject.
+    lv_attach_size = XSTRLEN( im_pdf_file ).
+
+    "Add the attachment to the document:
+    CALL METHOD document->add_attachment
+      EXPORTING
+        i_attachment_type     = 'PDF'
+        i_attachment_subject  = lv_attach_subject
+        i_attachment_size     = lv_attach_size
+        i_attachment_language = sy-langu
+        i_att_content_hex     = lt_attachment.
+
+    "Append the document to the message body:
+    message->set_document( document ).
+
+  ENDMETHOD.                    "build_payload
+**
+ENDCLASS.               "lcl_mail_client
+

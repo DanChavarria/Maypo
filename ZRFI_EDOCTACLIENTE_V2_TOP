@@ -1,0 +1,149 @@
+*&---------------------------------------------------------------------*
+*& Include ZRFI_EDOCTACLIENTE_V2_TOP                         Report ZRFI_EDOCTACLIENTE_V2
+*&
+*&---------------------------------------------------------------------*
+
+REPORT   zrfi_edoctacliente_v2.
+
+INCLUDE <color>.                                .   "
+
+*----------------------------------------------------------------------
+TABLES:
+  bsid,
+  kna1,
+  cawn,
+*{ MODIFY agil -> https://about.me/angelgil 23.01.2020 12:17:05 NMOP
+*  Se requieren en reporte ZFI_EDOCTACTE los campos: número del Socio comercial, nombre del socio
+* comercial, entrega de salida y UUID.
+  zstecc.
+* agil NMOP}
+
+*----------------------------------------------------------------------
+*CONSTANTS:
+
+*----------------------------------------------------------------------
+CLASS lcl_util DEFINITION.
+*
+  PUBLIC SECTION.
+
+    TYPES:
+      BEGIN OF ty_s_data.   " reporte
+            INCLUDE TYPE zstecc.
+    TYPES:
+            color TYPE lvc_t_scol,
+      END OF ty_s_data,
+
+      ty_t_data TYPE STANDARD TABLE OF ty_s_data.
+
+    CONSTANTS:
+      c_sform   TYPE tdsfname VALUE 'ZFISF_EDOCTACLIENTE'.
+
+    CLASS-DATA:
+      gs_data   TYPE ty_s_data,
+      gs_state  TYPE zstecc,
+
+      gt_data   TYPE ty_t_data,
+      gt_state  TYPE zstecc_tt,
+      gt_files  TYPE zcl_fi_accounting_service=>tyt_atta_by,
+
+      gr_table  TYPE REF TO cl_salv_table,
+
+      x_topdf   TYPE flag,
+      x_group   TYPE flag.
+
+    CLASS-METHODS:
+
+      init ,
+
+      extract_data ,
+
+      process_data ,
+
+      display_data ,
+
+      send_data .
+
+    METHODS:
+
+      on_link_click FOR EVENT link_click OF cl_salv_events_table
+        IMPORTING row column ,
+
+      on_user_command FOR EVENT added_function OF cl_salv_events
+        IMPORTING e_salv_function .
+
+  PRIVATE SECTION.
+
+    CLASS-METHODS:
+
+      set_columns
+        IMPORTING
+          ir_columns TYPE REF TO cl_salv_columns_table ,
+
+      set_top
+        RETURNING
+          value(rr_grid) TYPE REF TO cl_salv_form_layout_grid .
+*
+*      print_form
+*        IMPORTING
+*          is_param    TYPE ssfctrlop
+*        EXPORTING
+*          ex_pdf_file TYPE xstring
+*          ex_xls_file TYPE string.
+*
+ENDCLASS.                    "lcl_util DEFINITION
+*
+CLASS lcl_mail_client DEFINITION.
+*
+  PUBLIC SECTION.
+    CLASS-METHODS:
+      send_mail
+        IMPORTING im_recipient  TYPE string
+                  im_pdf_file   TYPE xstring OPTIONAL.
+
+    METHODS:
+      create_message
+        RAISING cx_bcs,
+
+      set_recipient
+        IMPORTING im_recipient  TYPE string
+        EXPORTING ex_recipient  TYPE string
+        RAISING cx_bcs,
+
+      build_payload
+        IMPORTING im_recipient  TYPE string
+                  im_pdf_file   TYPE xstring OPTIONAL
+        RAISING cx_bcs,
+
+      send_message
+        RAISING cx_bcs .
+
+  PRIVATE SECTION.
+    DATA: message  TYPE REF TO cl_bcs,
+          document TYPE REF TO cl_document_bcs.
+
+*
+ENDCLASS.               "LCL_MAIL_CLIENT
+*----------------------------------------------------------------------
+*----------------------------------------------------------------------
+SELECTION-SCREEN BEGIN OF BLOCK b_b1 WITH FRAME TITLE text-001.
+PARAMETERS:
+  p_bukrs TYPE bsid-bukrs OBLIGATORY MEMORY ID buk,
+  p_budat TYPE bsid-budat OBLIGATORY DEFAULT sy-datum.
+SELECT-OPTIONS:
+  s_kunnr FOR  bsid-kunnr
+    MATCHCODE OBJECT c_kunnr,
+  s_ktokd FOR  kna1-ktokd,
+  s_waers FOR  bsid-waers,
+  s_atwrt FOR  cawn-atwrt
+    MATCHCODE OBJECT zsh_zonaventas,
+*{ MODIFY agil -> https://about.me/angelgil 23.01.2020 12:19:03 NMOP
+*  Se requieren en reporte ZFI_EDOCTACTE el filtro por: número del Socio comercial.
+  s_partnr FOR zstecc-lifnr.
+* agil NMOP}
+SELECTION-SCREEN END OF BLOCK b_b1.
+
+SELECTION-SCREEN BEGIN OF BLOCK b_b2 WITH FRAME TITLE text-002.
+PARAMETERS:
+  p_layou TYPE disvariant-variant.
+SELECTION-SCREEN END OF BLOCK b_b2.
+
